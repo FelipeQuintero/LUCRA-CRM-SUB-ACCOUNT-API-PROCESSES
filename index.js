@@ -21,7 +21,7 @@ async function apiCall(url, method, token, data = null, params = null) {
     while (retries > 0) {
         try {
             await sleep(125);
-            const response = await axios({
+            const config = {
                 method,
                 url,
                 headers: {
@@ -30,9 +30,14 @@ async function apiCall(url, method, token, data = null, params = null) {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json'
                 },
-                data,
                 params
-            });
+            };
+
+            if (method.toUpperCase() !== 'GET' && data) {
+                config.data = data;
+            }
+
+            const response = await axios(config);
             return response.data;
         } catch (error) {
             if (error.response && error.response.status === 429) {
@@ -47,6 +52,7 @@ async function apiCall(url, method, token, data = null, params = null) {
     }
     throw new Error('Maximum API retry threshold exceeded');
 }
+
 
 async function buildEnvironmentMaps() {
     console.log('--- Phase 1: Building Identity Maps ---');
