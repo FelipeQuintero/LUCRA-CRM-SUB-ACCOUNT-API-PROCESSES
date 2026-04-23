@@ -8,11 +8,11 @@ const DEST_TOKEN = `Bearer ${process.env.SNAPSHOT_FELIPE_AUTH_TOKEN}`;
 const API_VERSION = '2021-07-28';
 const BASE_URL = 'https://services.leadconnectorhq.com';
 
-const dictUsers = {};
-const dictPipelines = {};
-const dictStages = {};
-const dictContacts = {};
-const dictCustomFields = {};
+const dictUsers = {}; 
+const dictPipelines = {}; 
+const dictStages = {}; 
+const dictContacts = {}; 
+const dictCustomFields = {}; 
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -20,8 +20,8 @@ async function apiCall(url, method, token, data = null, params = null) {
     let retries = 3;
     while (retries > 0) {
         try {
-            await sleep(125);
-            const config = {
+            await sleep(125); 
+            const response = await axios({
                 method,
                 url,
                 headers: {
@@ -30,29 +30,23 @@ async function apiCall(url, method, token, data = null, params = null) {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json'
                 },
+                data,
                 params
-            };
-
-            if (method.toUpperCase() !== 'GET' && data) {
-                config.data = data;
-            }
-
-            const response = await axios(config);
+            });
             return response.data;
         } catch (error) {
             if (error.response && error.response.status === 429) {
                 console.warn('Rate limit hit. Waiting 5 seconds...');
-                await sleep(5000);
+                await sleep(5000); 
                 retries--;
             } else {
                 console.error(`API Error on ${url}:`, error.response?.data || error.message);
-                throw error;
+                throw error; 
             }
         }
     }
     throw new Error('Maximum API retry threshold exceeded');
 }
-
 
 async function buildEnvironmentMaps() {
     console.log('--- Phase 1: Building Identity Maps ---');
@@ -60,13 +54,14 @@ async function buildEnvironmentMaps() {
     const sourceFields = await apiCall(`${BASE_URL}/locations/${SOURCE_LOCATION_ID}/customFields`, 'GET', SOURCE_TOKEN);
     if (sourceFields && sourceFields.customFields) {
         sourceFields.customFields.forEach(field => {
-            dictCustomFields[field.id] = field.fieldKey;
+            dictCustomFields[field.id] = field.fieldKey; 
         });
     }
 
-    const sourceUsers = await apiCall(`${BASE_URL}/users/search`, 'GET', SOURCE_TOKEN, null, { locationId: SOURCE_LOCATION_ID, limit: 100 });
-    const destUsers = await apiCall(`${BASE_URL}/users/search`, 'GET', DEST_TOKEN, null, { locationId: DEST_LOCATION_ID, limit: 100 });
-
+    // UPDATED: Using the 'Get User by Location' endpoint instead of Search to bypass companyId requirement
+    const sourceUsers = await apiCall(`${BASE_URL}/users/`, 'GET', SOURCE_TOKEN, null, { locationId: SOURCE_LOCATION_ID });
+    const destUsers = await apiCall(`${BASE_URL}/users/`, 'GET', DEST_TOKEN, null, { locationId: DEST_LOCATION_ID });
+    
     const destUserEmails = {};
     if (destUsers && destUsers.users) {
         destUsers.users.forEach(u => destUserEmails[u.email.toLowerCase()] = u.id);
@@ -74,7 +69,7 @@ async function buildEnvironmentMaps() {
     if (sourceUsers && sourceUsers.users) {
         sourceUsers.users.forEach(su => {
             const match = destUserEmails[su.email.toLowerCase()];
-            if (match) dictUsers[su.id] = match;
+            if (match) dictUsers[su.id] = match; 
         });
     }
 
@@ -99,14 +94,15 @@ async function buildEnvironmentMaps() {
 async function migrateContacts() {
     console.log('--- Phase 2: Migrating Contacts ---');
     let hasMore = true;
-    let startAfterId = undefined;
+    let startAfterId = undefined; 
     let totalMigrated = 0;
 
     while (hasMore) {
         const params = { locationId: SOURCE_LOCATION_ID, limit: 100 };
-        if (startAfterId) params.startAfterId = startAfterId;
+        if (startAfterId) params.startAfterId = startAfterId; 
 
-        const response = await apiCall(`${BASE_URL}/contacts/search`, 'GET', SOURCE_TOKEN, null, params);
+        // Uses standard contact endpoint for extraction
+        const response = await apiCall(`${BASE_URL}/contacts/`, 'GET', SOURCE_TOKEN, null, params);
         const contacts = response.contacts || [];
 
         if (contacts.length === 0) {
@@ -126,7 +122,7 @@ async function migrateContacts() {
             }
 
             const payload = {
-                locationId: DEST_LOCATION_ID,
+                locationId: DEST_LOCATION_ID, 
                 firstName: contact.firstName || undefined,
                 lastName: contact.lastName || undefined,
                 name: contact.name || undefined,
@@ -143,11 +139,11 @@ async function migrateContacts() {
                 dndSettings: contact.dndSettings || undefined,
                 tags: contact.tags || [],
                 customFields: transformedCustomFields,
-                createNewIfDuplicateAllowed: false
+                createNewIfDuplicateAllowed: false 
             };
 
-            if (contact.assignedTo && dictUsers[contact.assignedTo]) {
-                payload.assignedTo = dictUsers[contact.assignedTo];
+            if (contact.assignedTo && dictUsers) {
+                payload.assignedTo = dictUsers;
             }
 
             try {
@@ -169,7 +165,7 @@ async function migrateContacts() {
 async function migrateOpportunities() {
     console.log('--- Phase 3: Migrating Opportunities ---');
     let hasMore = true;
-    let page = 1;
+    let page = 1; 
     let totalMigrated = 0;
 
     while (hasMore) {
@@ -185,8 +181,8 @@ async function migrateOpportunities() {
         for (const opp of opportunities) {
             const newContactId = dictContacts[opp.contactId];
             const newPipelineId = dictPipelines[opp.pipelineId];
-
-            if (!newContactId || !newPipelineId) {
+            
+            if (!newContactId ||!newPipelineId) {
                 console.warn(`Bypassing Opportunity ${opp.id}: Missing Contact or Pipeline.`);
                 continue;
             }
@@ -200,11 +196,11 @@ async function migrateOpportunities() {
                 monetaryValue: opp.monetaryValue || 0,
             };
 
-            if (opp.pipelineStageId && dictStages[opp.pipelineStageId]) {
-                payload.pipelineStageId = dictStages[opp.pipelineStageId];
+            if (opp.pipelineStageId && dictStages) {
+                payload.pipelineStageId = dictStages;
             }
-            if (opp.assignedTo && dictUsers[opp.assignedTo]) {
-                payload.assignedTo = dictUsers[opp.assignedTo];
+            if (opp.assignedTo && dictUsers) {
+                payload.assignedTo = dictUsers;
             }
 
             try {
@@ -214,7 +210,7 @@ async function migrateOpportunities() {
                 console.error(`Upsert failure for opportunity: ${opp.name}`);
             }
         }
-
+        
         if (response.meta && response.meta.nextPageUrl) {
             page++;
         } else {
